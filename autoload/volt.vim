@@ -194,7 +194,13 @@ function! volt#get(args) abort
     if !s:rtp_has(fullpath, &rtp)
       let &rtp .= ',' . fullpath
       for file in glob(fullpath . '/plugin/**/*.vim', 1, 1)
-        source `=file`
+        try
+          source `=file`
+        catch
+          call msg.buffer('[WARN] Error occurred while reading ' . file)
+          call msg.buffer('[WARN] Error: ' . v:exception)
+          call msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
+        endtry
       endfor
     endif
     " helptags
@@ -205,7 +211,13 @@ function! volt#get(args) abort
     " Source plugconf
     let plugconf = s:Path.plugconf_of(repos.path)
     if filereadable(plugconf)
-      source `=plugconf`
+      try
+        source `=plugconf`
+      catch
+        call msg.buffer('[WARN] Error occurred while reading ' . plugconf)
+        call msg.buffer('[WARN] Error: ' . v:exception)
+        call msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
+      endtry
     endif
     " Run hook_post_update hooks
     call s:run_hooks('hook_post_update', repos.path)
