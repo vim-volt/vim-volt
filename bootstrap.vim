@@ -114,6 +114,10 @@ function! s:Path.volt_cmd() abort
   return s:Path.join(s:Path.volt_path(), 'bin', 'volt')
 endfunction
 
+function! s:Path.full_repos_path_of(repos_path) abort
+  return s:Path.join(s:Path.volt_path(), 'repos', a:repos_path)
+endfunction
+
 function! s:Path.shellescape(path) abort
   let old = &l:shellslash
   let &l:shellslash = 0
