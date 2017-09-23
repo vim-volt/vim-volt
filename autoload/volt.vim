@@ -16,31 +16,96 @@ if !hlexists('VoltInfoMsg')
   highlight VoltInfoMsg term=bold ctermfg=Cyan guifg=#80a0ff gui=bold
 endif
 
-function! volt#load() abort
+function! volt#load(...) abort
+  if a:0 && type(a:1) is# v:t_string
+    let err = s:load_plugin(a:1)
+    if err isnot# s:NIL
+      echohl ErrorMsg
+      echomsg '[ERROR] Could not load plugin: ' . a:1
+      echomsg '[ERROR]' err.msg
+      if err.stacktrace isnot# ''
+        echomsg '[ERROR] Stacktrace:' err.stacktrace
+      endif
+      echohl None
+      return 0
+    endif
+    return 1
+  endif
+
+  let err = s:load_all()
+  if err isnot# s:NIL
+    echomsg '[ERROR]' err.msg
+    if err.stacktrace isnot# ''
+      echomsg '[ERROR] Stacktrace:' err.stacktrace
+    endif
+    return 0
+  endif
+  return 1
+endfunction
+
+function! s:load_plugin(repos_path) abort
+  let [repos, err] = s:read_repos_of(a:repos_path)
+  if err isnot# s:NIL
+    return err
+  endif
+  let new_rtp = split(&rtp, ',')
+  let fullpath = s:Path.full_repos_path_of(repos.path)
+  if index(new_rtp, fullpath) isnot# -1
+    let new_rtp += [fullpath]
+    let &rtp = join(new_rtp, ',')
+  endif
+  return s:NIL
+endfunction
+
+function! s:read_repos_of(repos_path) abort
+  let [json, err] = s:read_lock_json()
+  if err isnot# s:NIL
+    return [v:null, s:new_error('could not read lock.json: ' . err.msg)]
+  endif
+  for repos in json.repos
+    if repos.path is# a:repos_path
+      return [repos, s:NIL]
+    endif
+  endfor
+  return [v:null, s:new_error('repos not found: ' . a:repos_path)]
+endfunction
+
+function! s:load_all() abort
   " Check if $VOLTPATH exists
   let volt_path = s:Path.volt_path()
   if !isdirectory(volt_path)
-    echohl ErrorMsg
-    echomsg '[ERROR] VOLTPATH directory does not exist: ' . volt_path
-    echohl None
-    return
+    return s:new_error('VOLTPATH directory does not exist: ' . volt_path)
   endif
 
   " Get active profile repos list
   let [profile, err] = s:get_active_profile()
   if err isnot# s:NIL
-    echohl ErrorMsg
-    echomsg '[ERROR]' err.msg
-    echohl None
-    return
+    return err
   endif
 
-  " Change runtimepath
+  " Load init.vim
+  let init_vim = s:Path.init_vim()
+  if filereadable(init_vim)
+    try
+      source `=init_vim`
+    catch
+      echohl WarningMsg
+      echomsg '[WARN] Error occurred while reading init.vim'
+      echomsg '[WARN] Error:' v:exception
+      echomsg '[WARN] Stacktrace:' v:throwpoint
+      echohl None
+    endtry
+  endif
+
+  " Add plugins to runtimepath
   let new_rtp = split(&rtp, ',')
   for repos in profile.repos
-    let new_rtp += [s:Path.full_repos_path_of(r.path)]
+    let fullpath = s:Path.full_repos_path_of(repos.path)
+    if !s:rtp_has(fullpath, new_rtp)
+      let new_rtp += [fullpath]
+    endif
   endfor
-  let &rtp .= join(new_rtp, ',')
+  let &rtp = join(new_rtp, ',')
 
   " Load plugconf
   for repos in profile.repos
@@ -58,13 +123,13 @@ function! volt#load() abort
     endif
   endfor
 
-  " TODO: filetype plugin indent on
+  return s:NIL
 endfunction
 
 function! s:get_active_profile() abort
   let [json, err] = s:read_lock_json()
   if err isnot# s:NIL
-    return [v:null, "could not read lock.json: " . err.msg]
+    return [v:null, s:new_error('could not read lock.json: ' . err.msg)]
   endif
   if json.active_profile is# 'default'
     return [{
@@ -75,7 +140,7 @@ function! s:get_active_profile() abort
     let profiles = filter(copy(json.profiles),
     \                     {_,profile -> profile.name is# json.active_profile})
     if empty(profiles)
-      let err = s:new_error(printf('No profile ''%s'' found', json.active_profile))
+      let err = s:new_error(printf('no profile ''%s'' found', json.active_profile))
       return [v:null, err]
     endif
     let repos_list = []
@@ -88,7 +153,7 @@ function! s:get_active_profile() abort
         endif
       endfor
       if repos is# s:NIL
-        return [v:null, s:new_error('lock.json is broken. Not found repos of: ' . path)]
+        return [v:null, s:new_error('lock.json is broken. not found repos of: ' . path)]
       endif
       let repos_list += [repos]
     endfor
@@ -99,8 +164,8 @@ function! s:get_active_profile() abort
   endif
 endfunction
 
-function! volt#loaded(repos) abort
-  return has_key(s:volt_repos, a:repos)
+function! volt#loaded(repos_path) abort
+  return has_key(s:volt_repos, a:repos_path)
 endfunction
 
 function! volt#get(args) abort
@@ -129,7 +194,7 @@ function! volt#get(args) abort
   for repos in s:get_last_transacted_repos(json)
     let fullpath = s:Path.full_repos_path_of(repos.path)
     " Append repos path to &rtp if it does not exist
-    if !s:rtp_has(fullpath)
+    if !s:rtp_has(fullpath, &rtp)
       let &rtp .= ',' . fullpath
       for file in glob(fullpath . '/plugin/**/*.vim', 1, 1)
         source `=file`
@@ -147,8 +212,13 @@ function! volt#get(args) abort
   endfor
 endfunction
 
-function! s:rtp_has(path) abort
-  let paths = map(split(&rtp, ','), 'expand(v:val)')
+function! s:rtp_has(path, rtp) abort
+  if type(a:rtp) is# v:t_string
+    let rtplist = split(a:rtp, ',')
+  else
+    let rtplist = a:rtp
+  endif
+  let paths = map(rtplist, 'expand(v:val)')
   return index(paths, expand(a:path)) isnot# -1
 endfunction
 
@@ -324,7 +394,7 @@ endfunction
 
 function! s:new_error(...) abort
   if a:0
-    return {'msg': a:1}
+    return {'msg': a:1, 'stacktrace': ''}
   endif
   return {'msg': v:exception, 'stacktrace': v:throwpoint}
 endfunction
@@ -448,4 +518,8 @@ endfunction
 
 function! s:Path.plugconf_of(repos_path) abort
   return s:Path.join(s:Path.volt_path(), 'plugconf', a:repos_path)
+endfunction
+
+function! s:Path.init_vim() abort
+  return s:Path.join(s:Path.volt_path(), 'rc', 'init.vim')
 endfunction
