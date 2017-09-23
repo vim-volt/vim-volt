@@ -6,24 +6,34 @@ let s:IS_MAC = !s:IS_WIN && !has('win32unix') && (has('mac') || has('macunix') |
 let s:PATH_SEP = s:IS_WIN ? '\' : '/'
 let s:VOLT_CMD_VERSION = 'v0.0.0-alpha'
 
-function! s:download() abort
+function! s:download_volt_cmd() abort
+  " Do nothing if volt command has been already installed
+  let volt_cmd = s:Path.volt_cmd()
+  if getfperm(volt_cmd) =~# '^..x'
+    return 0
+  endif
+
+  " Detect GOOS, GOARCH
   let goos = s:goos()
   let goarch = s:goarch()
   if goos is# '' || goarch is# ''
     echoerr printf('Cannot detect your environment''s GOOS or GOARCH: GOOS=%s, GOARCH=%s', goos, goarch)
-    return 100
+    return 1
   endif
-  let is_win = goos is# 'windows'
-  let ext = is_win ? '.exe' : ''
-  let url = printf('https://github.com/vim-volt/go-volt/releases/download/%s/volt-%s-%s-%s%s', s:VOLT_CMD_VERSION, s:VOLT_CMD_VERSION, goos, goarch, ext)
-  let volt_cmd = s:Path.volt_cmd()
+
+  " Create parent directories of volt command
   silent! call mkdir(fnamemodify(volt_cmd, ':h'), 'p')
   if !isdirectory(fnamemodify(volt_cmd, ':h'))
     echohl ErrorMsg
     echomsg 'Could not create directory: ' . volt_cmd
     echohl None
-    return 101
+    return 2
   endif
+
+  " Fetch volt command binary from GitHub
+  let is_win = goos is# 'windows'
+  let ext = is_win ? '.exe' : ''
+  let url = printf('https://github.com/vim-volt/go-volt/releases/download/%s/volt-%s-%s-%s%s', s:VOLT_CMD_VERSION, s:VOLT_CMD_VERSION, goos, goarch, ext)
   return s:fetch_to(url, volt_cmd)
 endfunction
 
@@ -34,15 +44,33 @@ function! s:fetch_to(url, volt_cmd) abort
     if !s:IS_WIN && executable('chmod')
       call system('chmod +x ' . s:Path.shellescape(a:volt_cmd))
     endif
-    return system(a:volt_cmd . ' version') =~# 'volt ' . s:VOLT_CMD_VERSION ? 0 : 102
+    if system(a:volt_cmd . ' version') !~# 'volt ' . s:VOLT_CMD_VERSION
+      return 3
+    endif
+    return 0
   else
     " TODO: Support more commands
     echohl ErrorMsg
     echomsg 'Cannot download volt binary'
     echomsg 'Please install ''curl'' command'
     echohl None
-    return 103
+    return 4
   endif
+endfunction
+
+function! s:download_vim_volt() abort
+  " Return error if previous volt command installation was failed
+  let volt_cmd = s:Path.volt_cmd()
+  if getfperm(volt_cmd) !~# '^..x'
+    return 1
+  endif
+  " Install vim-volt repository
+  let repos_path = 'github.com/vim-volt/vim-volt'
+  call system(join([volt_cmd, 'get', repos_path]))
+  if !isdirectory(s:Path.full_repos_path_of(repos_path))
+    return 2
+  endif
+  return 0
 endfunction
 
 function! s:goos() abort
@@ -113,15 +141,22 @@ function! s:show_guide() abort
   \ '',
   \ 'Hello! this is introduction guide to set up volt',
   \])
+  setlocal buftype=nofile readonly nomodifiable
 endfunction
 
 " Download volt binary from GitHub
-let s:code = s:download()
-if s:code > 0
+let s:code = s:download_volt_cmd()
+if s:code isnot# 0
   throw 'Failed to download volt binary (' . s:code . ')'
 endif
 
+" Download vim-volt repository
+let s:code = s:download_vim_volt()
+if s:code isnot# 0
+  throw 'Failed to download vim-volt repository '
+endif
+
 if $VOLT_NOGUIDE is# ''
-  " Show installation guide for user
+  " Show installation guide
   call s:show_guide()
 endif
