@@ -259,7 +259,7 @@ function! volt#rm(args) abort
   endif
 
   " Run 'volt rm ...'
-  let has_error = s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'get', 'args': a:args}, msg)[1]
+  let has_error = s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'rm', 'args': a:args}, msg)[1]
   if has_error
     return
   endif
