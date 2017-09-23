@@ -480,6 +480,7 @@ function! s:Msg._open_buffer(height) abort
   execute 'botright' max([a:height, 1]) 'new'
   file `=s:VOLT_MSG_BUFNAME`
   setlocal buftype=nofile readonly modifiable
+  setfiletype voltmsg
 
   " Set msg ID
   let w:volt_msg_id = self._msg_id
