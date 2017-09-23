@@ -5,85 +5,313 @@ let s:IS_WIN = has('win16') || has('win32')
 let s:PATH_SEP = s:IS_WIN ? '\' : '/'
 let s:VOLT_MSG_BUFNAME = '[VOLT_MSG]'
 let s:NIL = []
+lockvar! s:NIL
 let s:REPO_DIR = expand('<sfile>:h:h')
+let s:MSG_BUF_HEIGHT = 7
+let s:VOLT_CMD_VERSION = 'v0.0.0-alpha'
 
-let s:plugconf = {}
+let s:volt_repos = {}
 
-function! volt#get(args) abort
-  " Get volt command fullpath
-  let volt_cmd = s:Path.volt_cmd()
-  if getfperm(volt_cmd) !~# '^..x'
-    call s:msg_buffer('[INFO] Invoking bootstrap.vim ...')
-    let $VOLT_NOGUIDE = '1'
-    try
-      source `=s:REPO_DIR . '/bootstrap.vim'`
-    catch
-      call s:msg_buffer('[ERROR] ' . v:exception . "\n" . v:throwpoint)
-      return
-    endtry
-  endif
+if !hlexists('VoltInfoMsg')
+  highlight VoltInfoMsg term=bold ctermfg=Cyan guifg=#80a0ff gui=bold
+endif
 
-  " Execute 'volt get ...'
-  let volt_get = join([volt_cmd, 'get'] + a:args)
-  call s:msg_buffer(printf("[INFO] Executing '%s'", volt_get))
-  let out = system(volt_get)
-  for line in (out =~# '\S' ? split(out, '\n', 1) : '')
-    call s:msg_buffer('[OUT] ' . line)
-  endfor
-
-  " Get last transacted vim plugins:
-  " compare trx_id and repos[]/trx_id and get matched repos[]/path
-  let [lock_json, err] = s:read_lock_json()
-  if err isnot s:NIL
-    call s:msg_buffer('[ERROR] Could not read lock.json: ' . err.msg)
+function! volt#load() abort
+  " Check if $VOLTPATH exists
+  let volt_path = s:Path.volt_path()
+  if !isdirectory(volt_path)
+    echohl ErrorMsg
+    echomsg '[ERROR] VOLTPATH directory does not exist: ' . volt_path
+    echohl None
     return
   endif
-  for repos in s:get_last_transacted_repos(lock_json)
+
+  " Get active profile repos list
+  let [profile, err] = s:get_active_profile()
+  if err isnot# s:NIL
+    echohl ErrorMsg
+    echomsg '[ERROR]' err.msg
+    echohl None
+    return
+  endif
+
+  " Change runtimepath
+  let new_rtp = split(&rtp, ',')
+  for repos in profile.repos
+    let new_rtp += [s:Path.full_repos_path_of(r.path)]
+  endfor
+  let &rtp .= join(new_rtp, ',')
+
+  " Load plugconf
+  for repos in profile.repos
+    let plugconf = s:Path.plugconf_of(repos)
+    if filereadable(plugconf)
+      try
+        source `=plugconf`
+      catch
+        echohl WarningMsg
+        echomsg '[WARN] Error occurred while reading plugconf of' repos
+        echomsg '[WARN] Error:' v:exception
+        echomsg '[WARN] Stacktrace:' v:throwpoint
+        echohl None
+      endtry
+    endif
+  endfor
+
+  " TODO: filetype plugin indent on
+endfunction
+
+function! s:get_active_profile() abort
+  let [json, err] = s:read_lock_json()
+  if err isnot# s:NIL
+    return [v:null, "could not read lock.json: " . err.msg]
+  endif
+  if json.active_profile is# 'default'
+    return [{
+    \ 'load_init': json.load_init,
+    \ 'repos': json.repos,
+    \}, s:NIL]
+  else
+    let profiles = filter(copy(json.profiles),
+    \                     {_,profile -> profile.name is# json.active_profile})
+    if empty(profiles)
+      let err = s:new_error(printf('No profile ''%s'' found', json.active_profile))
+      return [v:null, err]
+    endif
+    let repos_list = []
+    for path in profiles[0].repos_path
+      let repos = s:NIL
+      for r in json.repos
+        if r.path is# path
+          repos = r
+          break
+        endif
+      endfor
+      if repos is# s:NIL
+        return [v:null, s:new_error('lock.json is broken. Not found repos of: ' . path)]
+      endif
+      let repos_list += [repos]
+    endfor
+    return [{
+    \ 'load_init': profiles[0].load_init,
+    \ 'repos': repos_list,
+    \}, s:NIL]
+  endif
+endfunction
+
+function! volt#loaded(repos) abort
+  return has_key(s:volt_repos, a:repos)
+endfunction
+
+function! volt#get(args) abort
+  let msg = s:new_msg()
+  call msg.close_buffer()
+
+  " Get volt command fullpath
+  let volt_cmd = s:Path.volt_cmd()
+
+  " Install volt command if it does not exist
+  if !s:install_volt_cmd(volt_cmd, msg)
+    return
+  endif
+
+  " Run 'volt get ...'
+  let has_error = s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'get', 'args': a:args}, msg)[1]
+  if has_error
+    return
+  endif
+
+  let [json, err] = s:read_lock_json()
+  if err isnot# s:NIL
+    call msg.buffer('[ERROR] Could not read lock.json: ' . err.msg)
+    return
+  endif
+  for repos in s:get_last_transacted_repos(json)
     let fullpath = s:Path.full_repos_path_of(repos.path)
+    " Append repos path to &rtp if it does not exist
     if !s:rtp_has(fullpath)
       let &rtp .= ',' . fullpath
       for file in glob(fullpath . '/plugin/**/*.vim', 1, 1)
         source `=file`
       endfor
     endif
-    helptags `=fullpath`
+    " helptags
+    helptags `=s:Path.join(fullpath, 'doc')`
+    " Source plugconf
     let plugconf = s:Path.plugconf_of(repos.path)
     if filereadable(plugconf)
       source `=plugconf`
     endif
-    call volt#run_hooks('hook_post_update', repos.path)
-  endfor
-endfunction
-
-function! volt#run_hooks(event, ...) abort
-  for path in a:0 is 0 ? keys(s:plugconf) :
-  \           type(a:1) is v:t_list ? a:1 : [a:1]
-    if has_key(s:plugconf, path) &&
-    \  has_key(s:plugconf[path], a:event)
-      call call(s:plugconf[path][a:event], [])
-    endif
+    " Run hook_post_update hooks
+    call s:run_hooks('hook_post_update', repos.path)
   endfor
 endfunction
 
 function! s:rtp_has(path) abort
   let paths = map(split(&rtp, ','), 'expand(v:val)')
-  return index(paths, expand(a:path)) isnot -1
+  return index(paths, expand(a:path)) isnot# -1
 endfunction
 
-function! s:get_last_transacted_repos(lock_json) abort
-  return filter(copy(a:lock_json.repos), 'v:val.trx_id is a:lock_json.trx_id')
+" Get last transacted (installed, updated, ...) vim plugins:
+" compare trx_id and repos[]/trx_id and get matched repos[]/path
+function! s:get_last_transacted_repos(json) abort
+  return filter(copy(a:json.repos), {_,repos -> repos.trx_id is# a:json.trx_id })
+endfunction
+
+function! volt#rm(args) abort
+  let msg = s:new_msg()
+  call msg.close_buffer()
+
+  let [json, err] = s:read_lock_json()
+  if err isnot# s:NIL
+    call msg.buffer('[ERROR] Could not read lock.json: ' . err.msg)
+    return
+  endif
+
+  " Get volt command fullpath
+  let volt_cmd = s:Path.volt_cmd()
+
+  " Install volt command if it does not exist
+  if !s:install_volt_cmd(volt_cmd, msg)
+    return
+  endif
+
+  " Run 'volt rm ...'
+  let has_error = s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'get', 'args': a:args}, msg)[1]
+  if has_error
+    return
+  endif
+
+  let [updated_json, err] = s:read_lock_json()
+  if err isnot# s:NIL
+    call msg.buffer('[ERROR] Could not read updated lock.json: ' . err.msg)
+    return
+  endif
+
+  let new_rtp = split(&rtp, ',')
+  for repos in s:get_removed_repos(json, updated_json)
+    let fullpath = s:Path.full_repos_path_of(repos.path)
+    call filter(new_rtp, {_,p -> expand(p) isnot# fullpath})
+  endfor
+  let &rtp = join(new_rtp, ',')
+endfunction
+
+function! s:get_removed_repos(json, updated_json) abort
+  let json_repos = deepcopy(a:json.repos)
+  " Assumption: json_repos contains updated_json.repos
+  for repos in a:updated_json.repos
+    call filter(json_repos, {_,r -> r.path isnot# repos.path})
+  endfor
+  return json_repos
+endfunction
+
+function! volt#query(args) abort
+  let msg = s:new_msg()
+  call msg.close_buffer()
+
+  " Get volt command fullpath
+  let volt_cmd = s:Path.volt_cmd()
+
+  " Install volt command if it does not exist
+  if !s:install_volt_cmd(volt_cmd, msg)
+    return
+  endif
+
+  " Run 'volt query ...'
+  let [out, has_error] = s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'query', 'args': a:args}, msg)
+  if !has_error && out !~# '\S'
+    call msg.cmdline('[INFO] No output.', 'VoltInfoMsg', 0)
+  endif
+endfunction
+
+function! volt#profile(args) abort
+  let msg = s:new_msg()
+  call msg.close_buffer()
+
+  " Get volt command fullpath
+  let volt_cmd = s:Path.volt_cmd()
+
+  " Install volt command if it does not exist
+  if !s:install_volt_cmd(volt_cmd, msg)
+    return
+  endif
+
+  " Run 'volt profile ...'
+  call s:volt_exec({'volt_cmd': volt_cmd, 'cmd': 'profile', 'args': a:args}, msg)
+endfunction
+
+function! s:run_hooks(event, ...) abort
+  for path in a:0 is# 0 ? keys(s:volt_repos) :
+  \           type(a:1) is# v:t_list ? a:1 : [a:1]
+    if has_key(s:volt_repos, path) &&
+    \  has_key(s:volt_repos[path], 'plugconf') &&
+    \  has_key(s:volt_repos[path].plugconf, a:event)
+      call call(s:volt_repos[path].plugconf[a:event], [])
+    endif
+  endfor
+endfunction
+
+function! s:volt_exec(opts, msg) abort
+  let opts = deepcopy(a:opts)
+  call extend(opts, {
+  \ 'show_buffer': 1,
+  \ 'show_cmdline': 1,
+  \ 'args': [],
+  \}, 'keep')
+  if !has_key(opts, 'volt_cmd')
+    throw 's:volt_exec(): ''volt_cmd'' is required'
+  endif
+  if !has_key(opts, 'cmd')
+    throw 's:volt_exec(): ''cmd'' is required'
+  endif
+
+  let shellargs = join([opts.volt_cmd, opts.cmd] + opts.args)
+  if opts.show_cmdline
+    call a:msg.cmdline(printf('[INFO] Running ''%s''', shellargs), 'VoltInfoMsg')
+  endif
+  let out = system(shellargs)
+  let has_error = !!v:shell_error
+  if opts.show_buffer
+    for line in (out =~# '\S' ? split(out, '\n', 1) : [])
+      if line =~# '\S'
+        call a:msg.buffer(line)
+      endif
+    endfor
+  endif
+  return [out, has_error]
+endfunction
+
+function! s:install_volt_cmd(volt_cmd, msg) abort
+  let opts = {
+  \ 'volt_cmd': a:volt_cmd,
+  \ 'cmd': 'version',
+  \ 'show_buffer': 0,
+  \ 'show_cmdline': 0,
+  \}
+  if getfperm(a:volt_cmd) !~# '^..x' ||
+  \   s:volt_exec(opts, a:msg)[0] !~# 'volt ' . s:VOLT_CMD_VERSION
+    call a:msg.cmdline('[INFO] Invoking bootstrap.vim ...', 'VoltInfoMsg')
+    let $VOLT_NOGUIDE = '1'
+    try
+      source `=s:REPO_DIR . '/bootstrap.vim'`
+    catch
+      call a:msg.buffer('[ERROR] ' . v:exception . "\n" . v:throwpoint)
+      return 0
+    endtry
+  endif
+  return 1
 endfunction
 
 function! s:read_lock_json() abort
   let [lines, err] = s:readfile(s:Path.lock_json(), 'b')
-  if err isnot s:NIL
+  if err isnot# s:NIL
     return [v:null, err]
   endif
-  let [lock_json, err] = s:json_decode(join(lines, ''))
-  if err isnot s:NIL
+  let [json, err] = s:json_decode(join(lines, ''))
+  if err isnot# s:NIL
     return [v:null, err]
   endif
-  return [lock_json, s:NIL]
+  return [json, s:NIL]
 endfunction
 
 function! s:__err_to_values(fn, args) abort
@@ -94,7 +322,10 @@ function! s:__err_to_values(fn, args) abort
   endtry
 endfunction
 
-function! s:new_error() abort
+function! s:new_error(...) abort
+  if a:0
+    return {'msg': a:1}
+  endif
   return {'msg': v:exception, 'stacktrace': v:throwpoint}
 endfunction
 
@@ -106,33 +337,60 @@ function! s:json_decode(...) abort
   return s:__err_to_values('json_decode', a:000)
 endfunction
 
-function! s:msg_cmdline(msg) abort
-  echohl ErrorMsg
-  echomsg a:msg
+let s:Msg = {}
+
+let s:msg_id = 1
+
+function! s:new_msg() abort
+  let msg = deepcopy(s:Msg)
+  let s:msg_id += 1
+  let msg._msg_id = s:msg_id
+  return msg
+endfunction
+
+function! s:Msg.cmdline(msg, hl, ...) abort
+  execute 'echohl' a:hl
+  let save_hist = get(a:000, 0, 1)
+  if save_hist
+    echomsg a:msg
+  else
+    echo a:msg
+  endif
   echohl None
 endfunction
 
-function! s:msg_buffer(msg) abort
+function! s:Msg.buffer(msg) abort
   let msg_list = split(a:msg, '\n', 1)
-  call s:open_msg_buffer(len(msg_list) + 2)
-  if bufname('') isnot s:VOLT_MSG_BUFNAME
-    call s:msg_cmdline('Could not open volt msg buffer')
+  call self._open_buffer(s:MSG_BUF_HEIGHT)
+  if bufname('') isnot# s:VOLT_MSG_BUFNAME && has_key(w:, 'volt_msg_id')
+    call self.cmdline('Could not open volt msg buffer', 'ErrorMsg')
     return
   endif
+  " Show message immediately
+  redraw
+  " Append messages to the last line
   setlocal noreadonly modifiable
   try
-    call setline(line('$'), msg_list)
+    let is_empty = line('$') is# 1 && getline(1) is# ''
+    let lnum = is_empty ? 1 : line('$') + 1
+    call setline(lnum, msg_list)
   finally
     setlocal readonly nomodifiable
   endtry
 endfunction
 
-function! s:open_msg_buffer(height) abort
-  " Find error buffer and switch to the window if it exists
+function! s:Msg._open_buffer(height) abort
+  " Find msg buffer and switch to the window if it exists
   for bufnr in tabpagebuflist()
-    if bufname(bufnr) is s:VOLT_MSG_BUFNAME
-      execute bufwinnr(bufnr) 'wincmd w'
-      return
+    if bufname(bufnr) is# s:VOLT_MSG_BUFNAME
+      if get(w:, 'volt_msg_id', 0) is# self._msg_id
+        execute bufwinnr(bufnr) 'wincmd w'
+        return
+      else
+        " Msg ID is different, find next buffer...
+        execute bufwinnr(bufnr) 'wincmd w'
+        close
+      endif
     endif
   endfor
 
@@ -140,6 +398,19 @@ function! s:open_msg_buffer(height) abort
   execute 'botright' max([a:height, 1]) 'new'
   file `=s:VOLT_MSG_BUFNAME`
   setlocal buftype=nofile readonly modifiable
+
+  " Set msg ID
+  let w:volt_msg_id = self._msg_id
+endfunction
+
+function! s:Msg.close_buffer() abort
+  " Find msg buffer and close the window if it exists
+  for bufnr in tabpagebuflist()
+    if bufname(bufnr) is# s:VOLT_MSG_BUFNAME
+      execute bufwinnr(bufnr) 'wincmd c'
+      return
+    endif
+  endfor
 endfunction
 
 
@@ -150,13 +421,13 @@ function! s:Path.volt_cmd() abort
 endfunction
 
 function! s:Path.volt_path() abort
-  if $VOLT_PATH isnot ''
+  if $VOLT_PATH isnot# ''
     return $VOLT_PATH
   endif
   let home = $HOME
-  if home is ''
+  if home is# ''
     let home = $APPDATA
-    if home is ''
+    if home is# ''
       throw 'Couldn''t look up VOLTPATH'
     endif
   endif

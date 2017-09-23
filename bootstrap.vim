@@ -9,11 +9,11 @@ let s:VOLT_CMD_VERSION = 'v0.0.0-alpha'
 function! s:download() abort
   let goos = s:goos()
   let goarch = s:goarch()
-  if goos is '' || goarch is ''
+  if goos is# '' || goarch is# ''
     echoerr printf('Cannot detect your environment''s GOOS or GOARCH: GOOS=%s, GOARCH=%s', goos, goarch)
     return 100
   endif
-  let is_win = goos is 'windows'
+  let is_win = goos is# 'windows'
   let ext = is_win ? '.exe' : ''
   let url = printf('https://github.com/vim-volt/go-volt/releases/download/%s/volt-%s-%s-%s%s', s:VOLT_CMD_VERSION, s:VOLT_CMD_VERSION, goos, goarch, ext)
   let volt_cmd = s:Path.volt_cmd()
@@ -29,9 +29,11 @@ endfunction
 
 function! s:fetch_to(url, volt_cmd) abort
   echomsg 'Downloading' a:url '...'
-  if executable('curl') && executable('chmod')
+  if executable('curl')
     call system('curl -Lo ' . s:Path.shellescape(a:volt_cmd) . ' ' . a:url)
-    call system('chmod +x ' . s:Path.shellescape(a:volt_cmd))
+    if !s:IS_WIN && executable('chmod')
+      call system('chmod +x ' . s:Path.shellescape(a:volt_cmd))
+    endif
     return system(a:volt_cmd . ' version') =~# 'volt ' . s:VOLT_CMD_VERSION ? 0 : 102
   else
     " TODO: Support more commands
@@ -57,19 +59,19 @@ function! s:goarch() abort
   if !s:IS_WIN
     return 'amd64'    " TODO: detect
   endif
-  return $ProgramW6432 isnot '' ? 'amd64' : '386'
+  return $ProgramW6432 isnot# '' ? 'amd64' : '386'
 endfunction
 
 let s:Path = {}
 
 function! s:Path.volt_path() abort
-  if $VOLT_PATH isnot ''
+  if $VOLT_PATH isnot# ''
     return $VOLT_PATH
   endif
   let home = $HOME
-  if home is ''
+  if home is# ''
     let home = $APPDATA
-    if home is ''
+    if home is# ''
       throw 'Couldn''t look up VOLTPATH'
     endif
   endif
@@ -108,8 +110,8 @@ function! s:show_guide() abort
   \ "       `8.`888'     `8 8888       ,8P  8 8888         8 8888",
   \ "        `8.`8'       ` 8888     ,88'   8 8888         8 8888",
   \ "         `8.`           `8888888P'     8 888888888888 8 8888",
-  \ "",
-  \ "Hello! this is introduction guide to set up volt",
+  \ '',
+  \ 'Hello! this is introduction guide to set up volt',
   \])
 endfunction
 
@@ -119,7 +121,7 @@ if s:code > 0
   throw 'Failed to download volt binary (' . s:code . ')'
 endif
 
-if $VOLT_NOGUIDE is ''
+if $VOLT_NOGUIDE is# ''
   " Show installation guide for user
   call s:show_guide()
 endif
