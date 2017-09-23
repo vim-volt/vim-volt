@@ -20,13 +20,11 @@ function! volt#load(...) abort
   if a:0 && type(a:1) is# v:t_string
     let err = s:load_plugin(a:1)
     if err isnot# s:NIL
-      echohl ErrorMsg
-      echomsg '[ERROR] Could not load plugin: ' . a:1
-      echomsg '[ERROR]' err.msg
+      call s:msg_cmdline('[ERROR] Could not load plugin: ' . a:1, 'ErrorMsg')
+      call s:msg_cmdline('[ERROR] ' . err.msg, 'ErrorMsg')
       if err.stacktrace isnot# ''
-        echomsg '[ERROR] Stacktrace:' err.stacktrace
+        call s:msg_cmdline('[ERROR] Stacktrace: ' . err.stacktrace, 'ErrorMsg')
       endif
-      echohl None
       return 0
     endif
     return 1
@@ -89,11 +87,9 @@ function! s:load_all() abort
     try
       source `=init_vim`
     catch
-      echohl WarningMsg
-      echomsg '[WARN] Error occurred while reading init.vim'
-      echomsg '[WARN] Error:' v:exception
-      echomsg '[WARN] Stacktrace:' v:throwpoint
-      echohl None
+      call s:msg_cmdline('[WARN] Error occurred while reading init.vim', 'WarningMsg')
+      call s:msg_cmdline('[WARN] Error: ' . v:exception, 'WarningMsg')
+      call s:msg_cmdline('[WARN] Stacktrace: ' . v:throwpoint, 'WarningMsg')
     endtry
   endif
 
@@ -114,11 +110,9 @@ function! s:load_all() abort
       try
         source `=plugconf`
       catch
-        echohl WarningMsg
-        echomsg '[WARN] Error occurred while reading plugconf of' repos
-        echomsg '[WARN] Error:' v:exception
-        echomsg '[WARN] Stacktrace:' v:throwpoint
-        echohl None
+        call s:msg_cmdline('[WARN] Error occurred while reading plugconf of ' . repos, 'WarningMsg')
+        call s:msg_cmdline('[WARN] Error: ' . v:exception, 'WarningMsg')
+        call s:msg_cmdline('[WARN] Stacktrace: ' . v:throwpoint, 'WarningMsg')
       endtry
     endif
   endfor
@@ -422,6 +416,10 @@ function! s:new_msg() abort
 endfunction
 
 function! s:Msg.cmdline(msg, hl, ...) abort
+  return s:msg_cmdline(a:msg, a:hl, a:0 ? a:1 : 1)
+endfunction
+
+function! s:msg_cmdline(msg, hl, ...) abort
   execute 'echohl' a:hl
   let save_hist = get(a:000, 0, 1)
   if save_hist
