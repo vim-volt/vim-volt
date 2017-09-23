@@ -17,20 +17,23 @@ if !hlexists('VoltInfoMsg')
 endif
 
 function! volt#load(...) abort
+  let msg = s:new_msg()
+  call msg.close_buffer()
+
   if a:0 && type(a:1) is# v:t_string
     let err = s:load_plugin(a:1)
     if err isnot# s:NIL
-      call s:msg_cmdline('[ERROR] Could not load plugin: ' . a:1, 'ErrorMsg')
-      call s:msg_cmdline('[ERROR] ' . err.msg, 'ErrorMsg')
+      call msg.buffer('[ERROR] Could not load plugin: ' . a:1)
+      call msg.buffer('[ERROR] ' . err.msg)
       if err.stacktrace isnot# ''
-        call s:msg_cmdline('[ERROR] Stacktrace: ' . err.stacktrace, 'ErrorMsg')
+        call msg.buffer('[ERROR] Stacktrace: ' . err.stacktrace)
       endif
       return 0
     endif
     return 1
   endif
 
-  let err = s:load_all()
+  let err = s:load_all(msg)
   if err isnot# s:NIL
     echomsg '[ERROR]' err.msg
     if err.stacktrace isnot# ''
@@ -68,7 +71,7 @@ function! s:read_repos_of(repos_path) abort
   return [v:null, s:new_error('repos not found: ' . a:repos_path)]
 endfunction
 
-function! s:load_all() abort
+function! s:load_all(msg) abort
   " Check if $VOLTPATH exists
   let volt_path = s:Path.volt_path()
   if !isdirectory(volt_path)
@@ -87,9 +90,9 @@ function! s:load_all() abort
     try
       source `=init_vim`
     catch
-      call s:msg_cmdline('[WARN] Error occurred while reading init.vim', 'WarningMsg')
-      call s:msg_cmdline('[WARN] Error: ' . v:exception, 'WarningMsg')
-      call s:msg_cmdline('[WARN] Stacktrace: ' . v:throwpoint, 'WarningMsg')
+      call a:msg.buffer('[WARN] Error occurred while reading init.vim')
+      call a:msg.buffer('[WARN] Error: ' . v:exception)
+      call a:msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
     endtry
   endif
 
@@ -110,9 +113,9 @@ function! s:load_all() abort
       try
         source `=plugconf`
       catch
-        call s:msg_cmdline('[WARN] Error occurred while reading plugconf of ' . repos, 'WarningMsg')
-        call s:msg_cmdline('[WARN] Error: ' . v:exception, 'WarningMsg')
-        call s:msg_cmdline('[WARN] Stacktrace: ' . v:throwpoint, 'WarningMsg')
+        call a:msg.buffer('[WARN] Error occurred while reading plugconf of ' . repos)
+        call a:msg.buffer('[WARN] Error: ' . v:exception)
+        call a:msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
       endtry
     endif
   endfor
@@ -416,10 +419,6 @@ function! s:new_msg() abort
 endfunction
 
 function! s:Msg.cmdline(msg, hl, ...) abort
-  return s:msg_cmdline(a:msg, a:hl, a:0 ? a:1 : 1)
-endfunction
-
-function! s:msg_cmdline(msg, hl, ...) abort
   execute 'echohl' a:hl
   let save_hist = get(a:000, 0, 1)
   if save_hist
