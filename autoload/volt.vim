@@ -132,7 +132,7 @@ function! s:get_active_profile() abort
   if json.active_profile is# 'default'
     return [{
     \ 'load_init': json.load_init,
-    \ 'repos': json.repos,
+    \ 'repos': filter(copy(json.repos), {_,r -> r.active}),
     \}, s:NIL]
   else
     let profiles = filter(copy(json.profiles),
