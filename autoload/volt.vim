@@ -201,7 +201,10 @@ function! volt#get(args) abort
       endfor
     endif
     " helptags
-    helptags `=s:Path.join(fullpath, 'doc')`
+    let docdir = s:Path.join(fullpath, 'doc')
+    if isdirectory(docdir)
+      helptags `=docdir`
+    endif
     " Source plugconf
     let plugconf = s:Path.plugconf_of(repos.path)
     if filereadable(plugconf)
