@@ -7,7 +7,7 @@ Please see the [README.md](https://github.com/tyru/vivo.vim).
 
 ## Install
 
-Install this plugin under `~/volt/` by:
+Install this plugin under `$VOLTPATH` (default is `~/volt`) by:
 
 ```
 vim -c ":so https://raw.githubusercontent.com/vim-volt/vim-volt/master/bootstrap.vim"
@@ -21,7 +21,7 @@ call volt#load()
 ```
 
 `volt#load()` does:
-* Get vim plugins list from current profile (see "Profile" section) in lock.json, and
+* Get vim plugins list from current profile (see "Profile" section) in `$VOLTPATH/lock.json`, and
 * Append vim plugins to Vim runtimepath
 * Load plugconf (see "Plugconf" section)
 
