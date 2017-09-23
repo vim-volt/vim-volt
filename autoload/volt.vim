@@ -8,7 +8,7 @@ let s:NIL = []
 lockvar! s:NIL
 let s:REPO_DIR = expand('<sfile>:h:h')
 let s:MSG_BUF_HEIGHT = 7
-let s:VOLT_CMD_VERSION = 'v0.0.0-alpha'
+let s:VOLT_CMD_VERSION = 'v0.0.1-alpha'
 
 let s:volt_repos = {}
 

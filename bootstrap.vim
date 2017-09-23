@@ -4,7 +4,7 @@ let s:IS_WIN = has('win16') || has('win32')
 \               || has('win64') || has('win95')
 let s:IS_MAC = !s:IS_WIN && !has('win32unix') && (has('mac') || has('macunix') || has('gui_macvim') || (!executable('xdg-open') && system('uname') =~? '^darwin'))
 let s:PATH_SEP = s:IS_WIN ? '\' : '/'
-let s:VOLT_CMD_VERSION = 'v0.0.0-alpha'
+let s:VOLT_CMD_VERSION = 'v0.0.1-alpha'
 
 function! s:download_volt_cmd() abort
   " Do nothing if volt command has been already installed
