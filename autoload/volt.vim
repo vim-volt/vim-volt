@@ -148,7 +148,7 @@ function! s:get_active_profile() abort
       let repos = s:NIL
       for r in json.repos
         if r.path is# path
-          repos = r
+          let repos = r
           break
         endif
       endfor
