@@ -19,6 +19,7 @@ endif
 function! volt#load(...) abort
   let msg = s:new_msg()
   call msg.close_buffer()
+  redraw
 
   if a:0 && type(a:1) is# v:t_string
     let err = s:load_plugin(a:1)
@@ -168,6 +169,7 @@ endfunction
 function! volt#get(args) abort
   let msg = s:new_msg()
   call msg.close_buffer()
+  redraw
 
   " Get volt command fullpath
   let volt_cmd = s:Path.volt_cmd()
@@ -243,6 +245,7 @@ endfunction
 function! volt#rm(args) abort
   let msg = s:new_msg()
   call msg.close_buffer()
+  redraw
 
   let [json, err] = s:read_lock_json()
   if err isnot# s:NIL
@@ -290,6 +293,7 @@ endfunction
 function! volt#query(args) abort
   let msg = s:new_msg()
   call msg.close_buffer()
+  redraw
 
   " Get volt command fullpath
   let volt_cmd = s:Path.volt_cmd()
@@ -309,6 +313,7 @@ endfunction
 function! volt#profile(args) abort
   let msg = s:new_msg()
   call msg.close_buffer()
+  redraw
 
   " Get volt command fullpath
   let volt_cmd = s:Path.volt_cmd()
