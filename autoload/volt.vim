@@ -107,18 +107,19 @@ function! s:load_all(msg) abort
   endfor
   let &rtp = join(new_rtp, ',')
 
-  " Load plugconf
+  " Load user / system plugconf
   for repos in profile.repos
-    let plugconf = s:Path.plugconf_of(repos)
-    if filereadable(plugconf)
-      try
-        source `=plugconf`
-      catch
-        call a:msg.buffer('[WARN] Error occurred while reading plugconf of ' . repos)
-        call a:msg.buffer('[WARN] Error: ' . v:exception)
-        call a:msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
-      endtry
-    endif
+    for plugconf in [s:Path.user_plugconf_of(repos.path), s:Path.system_plugconf_of(repos.path)]
+      if filereadable(plugconf)
+        try
+          source `=plugconf`
+        catch
+          call a:msg.buffer('[WARN] Error occurred while reading plugconf of ' . repos)
+          call a:msg.buffer('[WARN] Error: ' . v:exception)
+          call a:msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
+        endtry
+      endif
+    endfor
   endfor
 
   return s:NIL
@@ -210,17 +211,18 @@ function! volt#get(args) abort
     if isdirectory(docdir)
       helptags `=docdir`
     endif
-    " Source plugconf
-    let plugconf = s:Path.plugconf_of(repos.path)
-    if filereadable(plugconf)
-      try
-        source `=plugconf`
-      catch
-        call msg.buffer('[WARN] Error occurred while reading ' . plugconf)
-        call msg.buffer('[WARN] Error: ' . v:exception)
-        call msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
-      endtry
-    endif
+    " Load user / system plugconf
+    for plugconf in [s:Path.user_plugconf_of(repos.path), s:Path.system_plugconf_of(repos.path)]
+      if filereadable(plugconf)
+        try
+          source `=plugconf`
+        catch
+          call msg.buffer('[WARN] Error occurred while reading ' . plugconf)
+          call msg.buffer('[WARN] Error: ' . v:exception)
+          call msg.buffer('[WARN] Stacktrace: ' . v:throwpoint)
+        endtry
+      endif
+    endfor
     " Run hook_post_update hooks
     call s:run_hooks('hook_post_update', repos.path)
   endfor
@@ -534,8 +536,12 @@ function! s:Path.full_repos_path_of(repos_path) abort
   return s:Path.join(s:Path.volt_path(), 'repos', a:repos_path)
 endfunction
 
-function! s:Path.plugconf_of(repos_path) abort
-  return s:Path.join(s:Path.volt_path(), 'plugconf', a:repos_path)
+function! s:Path.user_plugconf_of(repos_path) abort
+  return s:Path.join(s:Path.volt_path(), 'plugconf', 'user', a:repos_path)
+endfunction
+
+function! s:Path.system_plugconf_of(repos_path) abort
+  return s:Path.join(s:Path.volt_path(), 'plugconf', 'system', a:repos_path)
 endfunction
 
 function! s:Path.init_vim() abort
