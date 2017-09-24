@@ -130,37 +130,31 @@ function! s:get_active_profile() abort
   if err isnot# s:NIL
     return [v:null, s:new_error('could not read lock.json: ' . err.msg)]
   endif
-  if json.active_profile is# 'default'
-    return [{
-    \ 'load_init': json.load_init,
-    \ 'repos': filter(copy(json.repos), {_,r -> r.active}),
-    \}, s:NIL]
-  else
-    let profiles = filter(copy(json.profiles),
-    \                     {_,profile -> profile.name is# json.active_profile})
-    if empty(profiles)
-      let err = s:new_error(printf('no profile ''%s'' found', json.active_profile))
-      return [v:null, err]
-    endif
-    let repos_list = []
-    for path in profiles[0].repos_path
-      let repos = s:NIL
-      for r in json.repos
-        if r.path is# path
-          let repos = r
-          break
-        endif
-      endfor
-      if repos is# s:NIL
-        return [v:null, s:new_error('lock.json is broken. not found repos of: ' . path)]
-      endif
-      let repos_list += [repos]
-    endfor
-    return [{
-    \ 'load_init': profiles[0].load_init,
-    \ 'repos': repos_list,
-    \}, s:NIL]
+
+  let profiles = filter(copy(json.profiles),
+  \                     {_,profile -> profile.name is# json.active_profile})
+  if empty(profiles)
+    let err = s:new_error(printf('no profile ''%s'' found', json.active_profile))
+    return [v:null, err]
   endif
+  let repos_list = []
+  for path in profiles[0].repos_path
+    let repos = s:NIL
+    for r in json.repos
+      if r.path is# path
+        let repos = r
+        break
+      endif
+    endfor
+    if repos is# s:NIL
+      return [v:null, s:new_error('lock.json is broken. not found repos of: ' . path)]
+    endif
+    let repos_list += [repos]
+  endfor
+  return [{
+  \ 'load_init': profiles[0].load_init,
+  \ 'repos': repos_list,
+  \}, s:NIL]
 endfunction
 
 function! volt#loaded(repos_path) abort
