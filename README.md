@@ -1,9 +1,7 @@
-# vim-volt (ex. vivo.vim)
+# vim-volt (ex. [tyru/vivo.vim](https://github.com/tyru/vivo.vim))
 
-Vim package manager makes your vim plugins management easy.
+Vim package interface for [vim-volt/volt](https://github.com/vim-volt/volt).
 
-Core concept is same as [tyru/vivo.vim](https://github.com/tyru/vivo.vim).
-Please see the [README.md](https://github.com/tyru/vivo.vim).
 
 ## Install
 
